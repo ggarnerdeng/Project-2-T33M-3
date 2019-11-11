@@ -2,142 +2,90 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
-
-	//"text/html"
-
-	"github.com/sfreiberg/simplessh"
+	"os/exec"
 )
 
-//scp USER@HOSTNAME:/home/USER/test13.txt /home/USER2/Documents/
-//^^ Code to copy one file from remote computer to local computer.
+//localstruct
+type localstruct struct {
+	FILES []string
+}
 
-//How to list all files in the catchbox
-//ssh USERNAME@HOSTNAME ls /home/USER/servercatchbox
+var hostname, userName, password, enter string
 
 func main() {
-	var hostname, userName, password string
+
+	//These are login variables for the REMOTE/target computer.
 	fmt.Printf("Enter a hostname(IP):  ")
 	fmt.Scanln(&hostname)
 	fmt.Printf("Enter a username:  ")
 	fmt.Scanln(&userName)
 	fmt.Printf("Enter a password:  ")
 	fmt.Scanln(&password)
+	enter = userName + "@" + hostname
 
-	//location := userName + "@" + hostname + ":/home"
-
-	//TREE: view all files as a tree
-	//a = response
-	//b = request
-
-	//AUTHLOG
-	http.HandleFunc("/authlog", func(a http.ResponseWriter, b *http.Request) {
-		var authlog = terminalCommand(hostname, userName, password, "ls /home/"+userName+"/servercatchbox")
-		fmt.Fprintf(a, "%s\n", "Viewing servercatchbox")
-		fmt.Fprintln(a, " ")
-		fmt.Fprintln(a, " ")
-		fmt.Fprintf(a, "%s", authlog)
-	})
-
-	http.HandleFunc("/", func(a http.ResponseWriter, b *http.Request) {
-		var output = terminalCommand(hostname, userName, password, "ps")
-		var html = `<html>
-		<head>
-		
-		<style>
-		ul {
-		list-style-type: none;
-		margin: 0;
-		padding: 0;
-		overflow: hidden;
-		background-color: #333333;
-	  }
-	  
-	  li {
-		float: center;
-	  }
-	  
-	  li a {
-		display: block;
-		color: red;
-		text-align: left;
-		padding: 16px;
-		text-decoration: none;
-	  }
-	  
-	  li a:hover {
-		background-color: #111111;
-	  }
-		* {
-		 box-sizing: border-box; 
-		}
-		
-		body {
-		  margin: 0;
-		}
-		#main {
-		  display: flex;
-		  min-height: calc(100vh - 40vh);
-		}
-		#main > article {
-		  flex: 1;
-		}
-		
-		#main > nav, 
-		#main > aside {
-		  flex: 0 0 20vw;
-		  background: beige;
-		}
-		#main > nav {
-		  order: -1;
-		}
-		header, footer, article, nav, aside {
-		  padding: 1em;
-		}
-		header, footer {
-		  background: yellowgreen;
-		  height: 20vh;
-		}
-	  </style>
-			</head>
-	  <body>
-		<header>Logged in as garner@192.168.1.33</header>
-		<div id="main">
-		<title> catchbox</title>
-		  <article>Command Line Options
-		  <ol>
-			  <li><a href="/authlog">View files in servercatchbox</a></li>
-			  <li><a href="/authlog">CLONE OF 1Upload files to servercatchbox</a></li>
-			  <li><a href="/authlog">CLONE OF 1Download files from servercatchbox</a></li>
-		  </ol></article>
-		  <nav></nav>
-		  <aside></aside>
-		</div>
-		<footer></footer>
-	  </body>
-					</html>
-			`
-		fmt.Fprintf(a, html, output)
-	})
-	fmt.Println()
-	fmt.Println("Successfully connected;")
-	fmt.Println("Open Localhost:12345")
-	http.ListenAndServe(":12345", nil)
+	http.HandleFunc("/", index)
+	http.HandleFunc("/remotefiles.html", remotefiles)
+	http.HandleFunc("/localfiles.html", localfiles)
+	http.HandleFunc("/formsubmit", formsubmit)
+	fmt.Println(" Open browser to localhost:7003")
+	http.ListenAndServe(":7003", nil)
 }
 
-func terminalCommand(hostname string, userName string, password string, command string) []byte {
-	var client *simplessh.Client
-	var err error
-	if client, err = simplessh.ConnectWithPassword(hostname, userName, password); err != nil {
-		fmt.Print(err)
-	}
+//index runs the index page
+func index(response http.ResponseWriter, request *http.Request) {
+	temp, _ := template.ParseFiles("html/index.html")
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	temp.Execute(response, nil)
+}
+
+//remotefiles displays remote computer files to html page.
+func remotefiles(response http.ResponseWriter, request *http.Request) {
+	temp, _ := template.ParseFiles("html/remotefiles.html")
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	remote, err := exec.Command("ssh", enter, "ls", "/home/"+userName+"/servercatchbox", ">", "file1", ";", "tail", "file1").Output()
+	g := localstruct{FILES: make([]string, 1)}
+	length := 0
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
-	defer client.Close()
-	output, err := client.Exec(command)
+	for l := 0; l < len(remote); l = l + 1 {
+		if remote[l] != 10 {
+			g.FILES[length] = g.FILES[length] + string(remote[l])
+		} else {
+			g.FILES = append(g.FILES, "\n")
+			length = length + 1
+		}
+	}
+	temp.Execute(response, g)
+}
+
+//localfiles displays host computer files to html page.
+func localfiles(response http.ResponseWriter, request *http.Request) {
+	temp, _ := template.ParseFiles("html/localfiles.html")
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	//fmt.Println("Local TEST PASS")
+	remote, err := exec.Command("ls", "/home/garner/servercatchbox", ">", "file1", ";", "tail", "file1").Output()
+	g := localstruct{FILES: make([]string, 1)}
+	length := 0
+
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
 	}
-	return output
+
+	for l := 0; l < len(remote); l = l + 1 {
+		if remote[l] != 10 {
+			g.FILES[length] = g.FILES[length] + string(remote[l])
+		} else {
+			g.FILES = append(g.FILES, "\n")
+			length = length + 1
+		}
+	}
+	temp.Execute(response, g)
+}
+
+//prototype
+func formsubmit(response http.ResponseWriter, request *http.Request) {
+	fmt.Println("WIP", request.FormValue("transfer1"))
 }
